@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Path Drawer with Leaflet</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+     
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+    <style>
+        /* Custom styles for the map and controls */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+        .controls {
+            position: absolute;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000; /* Ensure controls are on top of the map */
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        #coord-list {
+            position: absolute;
+            bottom: 1rem;
+            left: 1rem;
+            z-index: 1000;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-height: 40vh;
+            overflow-y: auto;
+        }
+        .message-box {
+            display: none;
+            position: absolute;
+            top: 6rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ef4444;
+            color: white;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            z-index: 1001;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <!-- The map container -->
+    <div id="map"></div>
+
+    <!-- Input controls overlaid on the map -->
+    <div class="controls">
+        <input type="text" id="coords" placeholder="e.g., 40.7128, -74.0060" class="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+        <button id="add-point-btn" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">Add Point</button>
+        <button id="clear-btn" class="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">Clear All</button>
+    </div>
+
+    <!-- List to display added coordinates -->
+    <div id="coord-list" class="hidden">
+        <h3 class="text-lg font-bold mb-2 text-gray-800">Added Points</h3>
+        <ul id="point-list-ul" class="list-disc list-inside text-gray-700"></ul>
+    </div>
+
+    <!-- Custom message box for errors -->
+    <div id="message-box" class="message-box">
+        <span id="message-text"></span>
+    </div>
+
+    <script>
+        // --- Leaflet.js Implementation ---
+
+        let map;
+        let polyline;
+        let markers = [];
+        const pathCoordinates = [];
+
+        /**
+         * Initializes the Leaflet Map and related components.
+         */
+        function initMap() {
+            // Initial map center coordinates and zoom level
+            const initialCenter = [48.3794, 31.1656]; // Centered on Ukraine
+            
+            // Create a new Leaflet map instance
+            map = L.map('map').setView(initialCenter, 6);
+
+            // Add a tile layer from OpenStreetMap. This provides the map imagery.
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+
+            // Create the Polyline object to draw the connecting line
+            polyline = L.polyline(pathCoordinates, { color: 'red' }).addTo(map);
+
+            // --- Right-click event listener ---
+            map.on('contextmenu', function(e) {
+                const lat = e.latlng.lat.toFixed(5);
+                const lng = e.latlng.lng.toFixed(5);
+                const coordsString = `${lat}, ${lng}`;
+
+                // Populate the input field with the clicked coordinates
+                document.getElementById('coords').value = coordsString;
+
+                // Show a popup at the clicked location
+                L.popup()
+                    .setLatLng(e.latlng)
+                    .setContent(`Coordinates: ${coordsString}`)
+                    .openOn(map);
+            });
+
+            // --- Control Event Listeners ---
+            const addPointBtn = document.getElementById('add-point-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            const coordsInput = document.getElementById('coords');
+
+            addPointBtn.addEventListener('click', addPoint);
+            clearBtn.addEventListener('click', clearMap);
+            coordsInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    addPoint();
+                }
+            });
+        }
+
+        /**
+         * Parses input, creates a marker, and updates the polyline.
+         */
+        function addPoint() {
+            const coordsInput = document.getElementById('coords');
+            const coordsString = coordsInput.value.trim();
+
+            if (!coordsString) {
+                showMessage("Please enter coordinates.");
+                return;
+            }
+
+            // Parse the coordinates string into latitude and longitude
+            const parts = coordsString.split(',').map(part => part.trim());
+            if (parts.length !== 2) {
+                showMessage("Invalid format. Please use 'latitude, longitude'.");
+                return;
+            }
+
+            const lat = parseFloat(parts[0]);
+            const lng = parseFloat(parts[1]);
+
+            // Validate the parsed numbers
+            if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                showMessage("Invalid latitude or longitude values.");
+                return;
+            }
+
+            const position = [lat, lng];
+
+            // Create a marker for the new point and add it to the map
+            const marker = L.marker(position).addTo(map)
+                .bindPopup(`Point ${markers.length + 1}: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            
+            markers.push(marker);
+
+            // Add the new coordinate to the polyline's path
+            polyline.addLatLng(position);
+
+            // Update the UI list
+            updatePointList(lat, lng);
+
+            // Pan the map to the newly added point
+            map.panTo(position);
+            if (markers.length === 1) {
+                map.setZoom(10);
+            }
+
+            // Clear the input field for the next entry
+            coordsInput.value = '';
+            coordsInput.focus();
+        }
+        
+        /**
+         * Updates the list of coordinates on the screen.
+         * @param {number} lat - The latitude of the point.
+         * @param {number} lng - The longitude of the point.
+         */
+        function updatePointList(lat, lng) {
+            const listContainer = document.getElementById('coord-list');
+            const listUl = document.getElementById('point-list-ul');
+            
+            const listItem = document.createElement('li');
+            listItem.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            listUl.appendChild(listItem);
+
+            if (listContainer.classList.contains('hidden')) {
+                listContainer.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Clears all markers and the polyline from the map.
+         */
+        function clearMap() {
+            // Remove all markers from the map
+            for (let i = 0; i < markers.length; i++) {
+                map.removeLayer(markers[i]);
+            }
+            markers = [];
+
+            // Clear the polyline path by setting it to an empty array
+            polyline.setLatLngs([]);
+            
+            // Clear the UI list
+            const listContainer = document.getElementById('coord-list');
+            const listUl = document.getElementById('point-list-ul');
+            listUl.innerHTML = '';
+            listContainer.classList.add('hidden');
+        }
+
+        /**
+         * Displays a custom message to the user.
+         * @param {string} text - The message to display.
+         */
+        function showMessage(text) {
+            const messageBox = document.getElementById('message-box');
+            const messageText = document.getElementById('message-text');
+            
+            messageText.textContent = text;
+            messageBox.style.display = 'block';
+
+            setTimeout(() => {
+                messageBox.style.display = 'none';
+            }, 3000); // Hide after 3 seconds
+        }
+
+        // Initialize the map once the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', initMap);
+
+    </script>
+</body>
+</html>
