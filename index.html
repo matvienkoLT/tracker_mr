@@ -82,6 +82,7 @@
         <input type="text" id="coords" placeholder="e.g., 40.7128, -74.0060" class="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
         <button id="add-point-btn" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">Add Point</button>
         <button id="clear-btn" class="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">Clear All</button>
+        <button id="get-location-btn" class="px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">My Location</button>
     </div>
 
     <!-- List to display added coordinates -->
@@ -101,6 +102,7 @@
         let map;
         let polyline;
         let markers = [];
+        let myLocationMarker = null; // Separate marker for user's location
         const pathCoordinates = [];
 
         /**
@@ -142,14 +144,66 @@
             const addPointBtn = document.getElementById('add-point-btn');
             const clearBtn = document.getElementById('clear-btn');
             const coordsInput = document.getElementById('coords');
+            const getLocationBtn = document.getElementById('get-location-btn');
 
             addPointBtn.addEventListener('click', addPoint);
             clearBtn.addEventListener('click', clearMap);
+            getLocationBtn.addEventListener('click', getMyLocation);
             coordsInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     addPoint();
                 }
             });
+        }
+
+        /**
+         * Gets the user's current location using the browser's Geolocation API.
+         */
+        function getMyLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        const userPosition = [lat, lng];
+
+                        // If a location marker already exists, remove it first
+                        if (myLocationMarker) {
+                            map.removeLayer(myLocationMarker);
+                        }
+
+                        // Center the map on the user's location
+                        map.setView(userPosition, 13);
+
+                        // Create a new marker for the user's location and store it
+                        myLocationMarker = L.marker(userPosition)
+                            .addTo(map)
+                            .bindPopup("<b>You are here!</b>")
+                            .openPopup();
+                    },
+                    (error) => {
+                        // Handle Geolocation errors
+                        let errorMessage = "Error getting your location: ";
+                        switch (error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMessage += "You denied the request for Geolocation.";
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMessage += "Location information is unavailable.";
+                                break;
+                            case error.TIMEOUT:
+                                errorMessage += "The request to get user location timed out.";
+                                break;
+                            case error.UNKNOWN_ERROR:
+                                errorMessage += "An unknown error occurred.";
+                                break;
+                        }
+                        showMessage(errorMessage);
+                    }
+                );
+            } else {
+                showMessage("Geolocation is not supported by this browser.");
+            }
         }
 
         /**
@@ -227,11 +281,17 @@
          * Clears all markers and the polyline from the map.
          */
         function clearMap() {
-            // Remove all markers from the map
+            // Remove all path markers from the map
             for (let i = 0; i < markers.length; i++) {
                 map.removeLayer(markers[i]);
             }
             markers = [];
+
+            // Also clear the "my location" marker if it exists
+            if (myLocationMarker) {
+                map.removeLayer(myLocationMarker);
+                myLocationMarker = null;
+            }
 
             // Clear the polyline path by setting it to an empty array
             polyline.setLatLngs([]);
