@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Automated GPS Tracker with OCR</title>
+    <title>Automated & Manual GPS Tracker with OCR</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     
@@ -31,30 +31,32 @@
             height: 100vh;
         }
         #main-content {
-            display: flex;
             flex: 1;
+            position: relative; /* Needed for absolute positioning of the side panel */
             overflow: hidden;
-        }
-        #map-container {
-            flex: 1;
-            position: relative;
         }
         #map {
             height: 100%;
             width: 100%;
         }
-        #automation-panel {
+        #side-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: 100%;
             width: 350px;
+            max-width: 90vw;
             background-color: #ffffff;
             padding: 1rem;
             overflow-y: auto;
             border-left: 1px solid #e2e8f0;
-            transition: width 0.3s ease;
+            z-index: 1200; /* High z-index to be on top */
+            transform: translateX(100%);
+            transition: transform 0.3s ease-in-out;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.1);
         }
-        #automation-panel.hidden {
-            width: 0;
-            padding: 0;
-            overflow: hidden;
+        #side-panel.open {
+            transform: translateX(0);
         }
         #video-container {
             position: relative;
@@ -80,93 +82,115 @@
             color: white;
             padding: 0.75rem 1.25rem;
             border-radius: 0.5rem;
-            z-index: 2000;
+            z-index: 2000; /* Highest z-index */
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         #ocr-status {
             min-height: 50px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            background-color: #f9fafb;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .tab-btn.active {
+            background-color: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
         }
     </style>
 </head>
 <body class="bg-gray-100">
 
     <div id="app-container">
-        <div class="bg-white p-2 border-b shadow-sm flex items-center justify-between">
-            <h1 class="text-xl font-bold text-gray-800">Automated GPS Tracker</h1>
+        <header class="bg-white p-2 border-b shadow-sm flex items-center justify-between z-10">
+            <h1 class="text-xl font-bold text-gray-800">GPS Tracker</h1>
             <div>
-                 <button id="toggle-automation-panel" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors">Show Automation Panel</button>
+                 <button id="toggle-side-panel" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors">Show Panel</button>
             </div>
-        </div>
+        </header>
 
-        <div id="main-content">
-            <div id="map-container">
-                <div id="map"></div>
-                <div id="message-box"><span id="message-text"></span></div>
-            </div>
+        <main id="main-content">
+            <div id="map"></div>
+            <div id="message-box"><span id="message-text"></span></div>
 
-            <div id="automation-panel" class="hidden">
-                <div class="space-y-4">
-                    <h2 class="text-lg font-bold border-b pb-2">Automation Controls</h2>
-                    
-                    <div>
-                        <button id="start-webcam-btn" class="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700">1. Start Webcam</button>
+            <aside id="side-panel">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex flex-grow">
+                        <button id="manual-tab-btn" class="tab-btn active rounded-l-md">Manual</button>
+                        <button id="auto-tab-btn" class="tab-btn rounded-r-md">Automation</button>
                     </div>
+                    <button id="close-panel-btn" class="ml-2 text-2xl text-gray-500 hover:text-gray-800">&times;</button>
+                </div>
 
-                    <div id="video-wrapper" class="hidden">
-                        <div id="video-container" class="w-full aspect-video rounded-md overflow-hidden">
-                            <video id="video" playsinline autoplay muted></video>
-                            <canvas id="selection-canvas"></canvas>
-                        </div>
-                        <p class="text-sm text-gray-600 mt-2">Click and drag on the video above to select the area with the GPS coordinates.</p>
-                    </div>
-                    
-                    <div id="tracking-controls" class="hidden">
+                <!-- Manual Controls -->
+                <div id="manual-controls">
+                    <div class="space-y-4">
+                        <h2 class="text-lg font-bold border-b pb-2">Manual Controls</h2>
                         <div>
-                            <label for="interval" class="block text-sm font-medium text-gray-700">Capture Interval (seconds)</label>
-                            <input type="number" id="interval" value="5" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            <label for="coords-input" class="block text-sm font-medium text-gray-700">Coordinates (Lat, Lng)</label>
+                            <input type="text" id="coords-input" placeholder="Click map or type coords" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                         </div>
-                        <button id="start-tracking-btn" class="w-full mt-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-400" disabled>2. Start Tracking</button>
-                        <button id="stop-tracking-btn" class="w-full mt-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 hidden">Stop Tracking</button>
+                        <button id="add-point-btn" class="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700">Add Point</button>
+                        <button id="get-location-btn" class="w-full px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700">Get My Location</button>
                     </div>
+                </div>
 
-                    <div>
-                        <h3 class="font-bold">OCR Status</h3>
-                        <div id="ocr-status" class="mt-1 p-2 bg-gray-100 rounded-md text-sm text-gray-700 overflow-x-auto">
-                            <p>OCR is idle.</p>
+                <!-- Automation Controls -->
+                <div id="automation-controls" class="hidden">
+                     <div class="space-y-4">
+                        <h2 class="text-lg font-bold border-b pb-2">Automation Controls</h2>
+                        <div>
+                            <button id="start-webcam-btn" class="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700">1. Start Webcam</button>
                         </div>
-                    </div>
-                     <div>
-                        <h3 class="font-bold">Path Points</h3>
-                        <div id="coord-list" class="mt-1 p-2 bg-gray-100 rounded-md text-sm max-h-48 overflow-y-auto">
-                           <ul id="point-list-ul"></ul>
+                        <div id="video-wrapper" class="hidden">
+                            <div id="video-container" class="w-full aspect-video rounded-md overflow-hidden">
+                                <video id="video" playsinline autoplay muted></video>
+                                <canvas id="selection-canvas"></canvas>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2">Click and drag to select the coordinates area.</p>
+                        </div>
+                        <div id="tracking-controls" class="hidden">
+                            <div>
+                                <label for="interval" class="block text-sm font-medium text-gray-700">Capture Interval (seconds)</label>
+                                <input type="number" id="interval" value="5" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                            <button id="start-tracking-btn" class="w-full mt-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-400" disabled>2. Start Tracking</button>
+                            <button id="stop-tracking-btn" class="w-full mt-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 hidden">Stop Tracking</button>
+                        </div>
+                        <div>
+                            <h3 class="font-bold">OCR Status</h3>
+                            <div id="ocr-status" class="mt-1 p-2 bg-gray-100 rounded-md text-sm text-gray-700 overflow-x-auto"><p>OCR is idle.</p></div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+                
+                <!-- Shared Elements -->
+                <div class="mt-4 pt-4 border-t">
+                    <h3 class="font-bold">Path Points</h3>
+                    <div id="coord-list" class="mt-1 p-2 bg-gray-100 rounded-md text-sm max-h-48 overflow-y-auto">
+                       <ul id="point-list-ul"></ul>
+                    </div>
+                    <button id="clear-path-btn" class="w-full mt-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700">Clear Path</button>
+                </div>
+            </aside>
+        </main>
     </div>
 
     <script>
-        // --- Global Variables ---
-        let map;
-        let polyline;
+        let map, polyline, trackingIntervalId, myLocationMarker;
         let markers = [];
         const pathCoordinates = [];
-        let trackingIntervalId = null;
         let selectionRect = {};
         let isSelecting = false;
 
-        // --- DOM Elements ---
         const video = document.getElementById('video');
         const selectionCanvas = document.getElementById('selection-canvas');
         const ctx = selectionCanvas.getContext('2d');
-        const ocrStatusEl = document.getElementById('ocr-status');
-        const startWebcamBtn = document.getElementById('start-webcam-btn');
-        const startTrackingBtn = document.getElementById('start-tracking-btn');
-        const stopTrackingBtn = document.getElementById('stop-tracking-btn');
-        const intervalInput = document.getElementById('interval');
         
-        // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             initMap();
             setupEventListeners();
@@ -182,83 +206,135 @@
         }
 
         function setupEventListeners() {
-            document.getElementById('toggle-automation-panel').addEventListener('click', toggleAutomationPanel);
-            startWebcamBtn.addEventListener('click', startWebcam);
+            // Panel and Tabs
+            document.getElementById('toggle-side-panel').addEventListener('click', toggleSidePanel);
+            document.getElementById('close-panel-btn').addEventListener('click', toggleSidePanel);
+            document.getElementById('manual-tab-btn').addEventListener('click', () => switchTab('manual'));
+            document.getElementById('auto-tab-btn').addEventListener('click', () => switchTab('auto'));
+
+            // Manual Controls
+            document.getElementById('add-point-btn').addEventListener('click', addManualPoint);
+            document.getElementById('get-location-btn').addEventListener('click', getMyLocation);
+            document.getElementById('clear-path-btn').addEventListener('click', clearMap);
+            map.on('click', onMapClick);
+
+            // Automation Controls
+            document.getElementById('start-webcam-btn').addEventListener('click', startWebcam);
             selectionCanvas.addEventListener('mousedown', startSelection);
             selectionCanvas.addEventListener('mousemove', drawSelection);
             selectionCanvas.addEventListener('mouseup', endSelection);
             selectionCanvas.addEventListener('mouseleave', endSelection);
-            startTrackingBtn.addEventListener('click', startTracking);
-            stopTrackingBtn.addEventListener('click', stopTracking);
+            document.getElementById('start-tracking-btn').addEventListener('click', startTracking);
+            document.getElementById('stop-tracking-btn').addEventListener('click', stopTracking);
         }
 
-        // --- UI Functions ---
-        function toggleAutomationPanel() {
-            const panel = document.getElementById('automation-panel');
-            panel.classList.toggle('hidden');
-            this.textContent = panel.classList.contains('hidden') ? 'Show Automation Panel' : 'Hide Automation Panel';
+        // --- UI & Tab Functions ---
+        function toggleSidePanel() {
+            document.getElementById('side-panel').classList.toggle('open');
+        }
+
+        function switchTab(tab) {
+            const manualControls = document.getElementById('manual-controls');
+            const autoControls = document.getElementById('automation-controls');
+            const manualBtn = document.getElementById('manual-tab-btn');
+            const autoBtn = document.getElementById('auto-tab-btn');
+
+            if (tab === 'manual') {
+                manualControls.classList.remove('hidden');
+                autoControls.classList.add('hidden');
+                manualBtn.classList.add('active');
+                autoBtn.classList.remove('active');
+            } else {
+                manualControls.classList.add('hidden');
+                autoControls.classList.remove('hidden');
+                manualBtn.classList.remove('active');
+                autoBtn.classList.add('active');
+            }
         }
 
         function showMessage(text, isError = true) {
-            const messageBox = document.getElementById('message-box');
-            const messageText = document.getElementById('message-text');
-            messageText.textContent = text;
-            messageBox.style.backgroundColor = isError ? '#ef4444' : '#10b981';
-            messageBox.style.display = 'block';
-            setTimeout(() => { messageBox.style.display = 'none'; }, 4000);
+            const msgBox = document.getElementById('message-box');
+            msgBox.querySelector('span').textContent = text;
+            msgBox.style.backgroundColor = isError ? '#ef4444' : '#10b981';
+            msgBox.style.display = 'block';
+            setTimeout(() => { msgBox.style.display = 'none'; }, 4000);
         }
 
+        // --- Manual Mode Functions ---
+        function onMapClick(e) {
+            const { lat, lng } = e.latlng;
+            document.getElementById('coords-input').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            if (!document.getElementById('side-panel').classList.contains('open')) {
+                toggleSidePanel();
+            }
+        }
+
+        function addManualPoint() {
+            const coordsString = document.getElementById('coords-input').value;
+            if (!coordsString) {
+                showMessage("Please enter coordinates or click the map.");
+                return;
+            }
+            const parts = coordsString.split(',').map(p => parseFloat(p.trim()));
+            if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+                showMessage("Invalid format. Please use 'latitude, longitude'.");
+                return;
+            }
+            createAndAddPoint(parts[0], parts[1]);
+            document.getElementById('coords-input').value = '';
+        }
+        
+        function getMyLocation() {
+            if (!navigator.geolocation) {
+                return showMessage("Geolocation is not supported by this browser.");
+            }
+            navigator.geolocation.getCurrentPosition(position => {
+                const { latitude, longitude } = position.coords;
+                if (myLocationMarker) map.removeLayer(myLocationMarker);
+                myLocationMarker = L.marker([latitude, longitude]).addTo(map)
+                    .bindPopup("<b>You are here!</b>").openPopup();
+                map.setView([latitude, longitude], 13);
+                document.getElementById('coords-input').value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            }, () => showMessage("Could not get your location."));
+        }
+
+        // --- Automation Mode Functions ---
         function updateOcrStatus(message, isLoading = false) {
-             ocrStatusEl.innerHTML = isLoading 
+             document.getElementById('ocr-status').innerHTML = isLoading 
                 ? `<div class="flex items-center"><svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>${message}</span></div>`
                 : `<p>${message}</p>`;
         }
-
-        // --- Automation Core ---
+        
         async function startWebcam() {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                showMessage("getUserMedia() is not supported by your browser.");
-                return;
-            }
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 video.srcObject = stream;
-                video.addEventListener('loadedmetadata', () => {
+                video.onloadedmetadata = () => {
                     selectionCanvas.width = video.videoWidth;
                     selectionCanvas.height = video.videoHeight;
                     document.getElementById('video-wrapper').classList.remove('hidden');
                     document.getElementById('tracking-controls').classList.remove('hidden');
-                    startWebcamBtn.textContent = "Webcam Active";
-                    startWebcamBtn.disabled = true;
-                });
-            } catch (err) {
-                showMessage(`Error accessing webcam: ${err.name}`);
-            }
+                    document.getElementById('start-webcam-btn').textContent = "Webcam Active";
+                    document.getElementById('start-webcam-btn').disabled = true;
+                };
+            } catch (err) { showMessage(`Error accessing webcam: ${err.name}`); }
         }
 
-        function startSelection(e) {
-            isSelecting = true;
-            selectionRect.startX = e.offsetX;
-            selectionRect.startY = e.offsetY;
-        }
-
+        function startSelection(e) { isSelecting = true; selectionRect = { startX: e.offsetX, startY: e.offsetY }; }
         function drawSelection(e) {
             if (!isSelecting) return;
-            const x = e.offsetX;
-            const y = e.offsetY;
             ctx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
             ctx.strokeStyle = 'red';
             ctx.lineWidth = 2;
-            ctx.strokeRect(selectionRect.startX, selectionRect.startY, x - selectionRect.startX, y - selectionRect.startY);
+            ctx.strokeRect(selectionRect.startX, selectionRect.startY, e.offsetX - selectionRect.startX, e.offsetY - selectionRect.startY);
         }
-
         function endSelection(e) {
             if (!isSelecting) return;
             isSelecting = false;
             selectionRect.w = e.offsetX - selectionRect.startX;
             selectionRect.h = e.offsetY - selectionRect.startY;
-
-            if (selectionRect.w < 10 || selectionRect.h < 10) {
+            const startTrackingBtn = document.getElementById('start-tracking-btn');
+            if (Math.abs(selectionRect.w) < 10 || Math.abs(selectionRect.h) < 10) {
                  ctx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
                  selectionRect = {};
                  startTrackingBtn.disabled = true;
@@ -269,96 +345,57 @@
         }
 
         function startTracking() {
-            if (!selectionRect.w || !selectionRect.h) {
-                showMessage("Please select a region on the video first.");
-                return;
-            }
-            const interval = parseInt(intervalInput.value, 10) * 1000;
-            if (isNaN(interval) || interval < 1000) {
-                showMessage("Please set a valid interval of at least 1 second.");
-                return;
-            }
-
+            const interval = parseInt(document.getElementById('interval').value, 10) * 1000;
             trackingIntervalId = setInterval(performOcr, interval);
-            
-            startTrackingBtn.classList.add('hidden');
-            stopTrackingBtn.classList.remove('hidden');
-            showMessage(`Tracking started. Capturing every ${interval/1000} seconds.`, false);
-            performOcr(); // Perform one immediately
+            document.getElementById('start-tracking-btn').classList.add('hidden');
+            document.getElementById('stop-tracking-btn').classList.remove('hidden');
+            showMessage(`Tracking started. Capturing every ${interval/1000}s.`, false);
+            performOcr();
         }
 
         function stopTracking() {
-            if (trackingIntervalId) {
-                clearInterval(trackingIntervalId);
-                trackingIntervalId = null;
-            }
-            startTrackingBtn.classList.remove('hidden');
-            stopTrackingBtn.classList.add('hidden');
+            clearInterval(trackingIntervalId);
+            trackingIntervalId = null;
+            document.getElementById('start-tracking-btn').classList.remove('hidden');
+            document.getElementById('stop-tracking-btn').classList.add('hidden');
             updateOcrStatus("Tracking stopped.");
         }
 
         async function performOcr() {
             if (!selectionRect.w || !selectionRect.h) return;
-
-            // Create a temporary canvas to hold the cropped image
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = selectionRect.w;
-            tempCanvas.height = selectionRect.h;
-            const tempCtx = tempCanvas.getContext('2d');
-
-            // Draw the selected part of the video onto the temporary canvas
-            tempCtx.drawImage(video, selectionRect.startX, selectionRect.startY, selectionRect.w, selectionRect.h, 0, 0, selectionRect.w, selectionRect.h);
-
-            updateOcrStatus("Recognizing text...", true);
+            tempCanvas.width = Math.abs(selectionRect.w);
+            tempCanvas.height = Math.abs(selectionRect.h);
+            const sx = selectionRect.w > 0 ? selectionRect.startX : selectionRect.startX + selectionRect.w;
+            const sy = selectionRect.h > 0 ? selectionRect.startY : selectionRect.startY + selectionRect.h;
+            tempCanvas.getContext('2d').drawImage(video, sx, sy, Math.abs(selectionRect.w), Math.abs(selectionRect.h), 0, 0, Math.abs(selectionRect.w), Math.abs(selectionRect.h));
             
+            updateOcrStatus("Recognizing...", true);
             try {
-                const result = await Tesseract.recognize(
-                    tempCanvas,
-                    'eng',
-                    { 
-                        logger: m => {
-                            if (m.status === 'recognizing text') {
-                                updateOcrStatus(`Recognizing... (${(m.progress * 100).toFixed(0)}%)`, true);
-                            }
-                        },
-                        tessedit_char_whitelist: '0123456789.,- ' // Whitelist characters for better accuracy
-                    }
-                );
-                
-                const text = result.data.text;
+                const { data: { text } } = await Tesseract.recognize(tempCanvas, 'eng', { tessedit_char_whitelist: '0123456789.,- ' });
                 updateOcrStatus(`Recognized: "${text.trim()}"`);
                 parseAndAddPoint(text);
-
-            } catch (error) {
-                console.error(error);
-                updateOcrStatus(`OCR Error: ${error.message}`);
-            }
+            } catch (error) { updateOcrStatus(`OCR Error: ${error.message}`); }
         }
 
-        // --- Map Functions ---
         function parseAndAddPoint(text) {
-            // Regex to find two numbers (integer or float, positive or negative) separated by a comma
             const match = text.replace(/(\r\n|\n|\r)/gm, " ").match(/(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/);
-            
-            if (!match) {
-                updateOcrStatus(`Recognized: "${text.trim()}" <br><b>Could not find valid coordinates.</b>`);
-                return;
-            }
-
-            const lat = parseFloat(match[1]);
-            const lng = parseFloat(match[2]);
-
+            if (!match) return updateOcrStatus(`Recognized: "${text.trim()}" <br><b>Could not find valid coordinates.</b>`);
+            const lat = parseFloat(match[1]), lng = parseFloat(match[2]);
             if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-                 updateOcrStatus(`Recognized: "${text.trim()}" <br><b>Parsed invalid lat/lng values.</b>`);
-                return;
+                 return updateOcrStatus(`Recognized: "${text.trim()}" <br><b>Parsed invalid lat/lng values.</b>`);
             }
+            createAndAddPoint(lat, lng);
+        }
 
+        // --- Shared Map/Path Functions ---
+        function createAndAddPoint(lat, lng) {
             const position = [lat, lng];
             const marker = L.marker(position).addTo(map)
                 .bindPopup(`Point ${markers.length + 1}: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-            
             markers.push(marker);
-            polyline.addLatLng(position);
+            pathCoordinates.push(position);
+            polyline.setLatLngs(pathCoordinates);
             updatePointList(lat, lng);
             map.panTo(position);
         }
@@ -366,11 +403,23 @@
         function updatePointList(lat, lng) {
             const listUl = document.getElementById('point-list-ul');
             const listItem = document.createElement('li');
-            listItem.className = 'text-gray-800'
+            listItem.className = 'text-gray-800';
             listItem.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-            listUl.prepend(listItem); // Add new points to the top
+            listUl.prepend(listItem);
         }
 
+        function clearMap() {
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            pathCoordinates.length = 0;
+            polyline.setLatLngs(pathCoordinates);
+            if (myLocationMarker) {
+                map.removeLayer(myLocationMarker);
+                myLocationMarker = null;
+            }
+            document.getElementById('point-list-ul').innerHTML = '';
+            showMessage("Path has been cleared.", false);
+        }
     </script>
 </body>
 </html>
