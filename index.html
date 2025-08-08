@@ -62,7 +62,8 @@
             position: relative;
             background-color: #2d3748; /* Dark background for test mode visibility */
         }
-        #video, #selection-canvas {
+        /* All video/canvas layers are positioned on top of each other */
+        #video, #test-mode-canvas, #selection-canvas {
             position: absolute;
             top: 0;
             left: 0;
@@ -71,6 +72,7 @@
         }
         #selection-canvas {
             cursor: crosshair;
+            z-index: 10; /* Ensure selection is on top */
         }
         .message-box {
             display: none;
@@ -100,6 +102,19 @@
             background-color: #4f46e5;
             color: white;
             border-color: #4f46e5;
+        }
+        /* Custom style for the numbered markers */
+        .number-marker {
+            background-color: #dc2626; /* Red-600 */
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            font-weight: bold;
+            font-size: 12px;
+            line-height: 22px; /* Vertically center the number */
+            border: 1px solid #fee2e2; /* Red-100 */
+            width: 22px;
+            height: 22px;
         }
     </style>
 </head>
@@ -150,12 +165,22 @@
                         <div id="video-wrapper" class="hidden">
                             <div id="video-container" class="w-full aspect-video rounded-md overflow-hidden">
                                 <video id="video" playsinline autoplay muted></video>
+                                <canvas id="test-mode-canvas"></canvas>
                                 <canvas id="selection-canvas"></canvas>
                             </div>
                             <p class="text-sm text-gray-600 mt-2">Click and drag to select the coordinates area.</p>
                         </div>
                         <div id="tracking-controls" class="hidden">
-                            <div>
+                            <div class="pt-4 border-t">
+                                <h3 class="font-bold">My Location</h3>
+                                <p class="text-sm text-gray-500 mb-2">Highlight your position on the map.</p>
+                                <div class="space-y-2">
+                                    <input type="text" id="auto-location-input" placeholder="Lat, Lng (optional)" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                    <button id="set-auto-location-btn" class="w-full px-4 py-2 bg-gray-500 text-white font-semibold rounded-md hover:bg-gray-600">Set Manual Location</button>
+                                    <button id="find-auto-location-btn" class="w-full px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700">Find My Location (API)</button>
+                                </div>
+                            </div>
+                            <div class="pt-4 border-t">
                                 <label for="interval" class="block text-sm font-medium text-gray-700">Capture Interval (seconds)</label>
                                 <input type="number" id="interval" value="5" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                             </div>
@@ -190,8 +215,10 @@
         let isTestMode = false;
 
         const video = document.getElementById('video');
+        const testModeCanvas = document.getElementById('test-mode-canvas');
         const selectionCanvas = document.getElementById('selection-canvas');
-        const ctx = selectionCanvas.getContext('2d');
+        const testCtx = testModeCanvas.getContext('2d');
+        const selectionCtx = selectionCanvas.getContext('2d');
         
         document.addEventListener('DOMContentLoaded', () => {
             initMap();
@@ -216,13 +243,15 @@
 
             // Manual Controls
             document.getElementById('add-point-btn').addEventListener('click', addManualPoint);
-            document.getElementById('get-location-btn').addEventListener('click', getMyLocation);
+            document.getElementById('get-location-btn').addEventListener('click', findAndSetMyLocation);
             document.getElementById('clear-path-btn').addEventListener('click', clearMap);
             map.on('click', onMapClick);
 
             // Automation Controls
             document.getElementById('start-webcam-btn').addEventListener('click', startWebcam);
             document.getElementById('start-test-mode-btn').addEventListener('click', startTestMode);
+            document.getElementById('set-auto-location-btn').addEventListener('click', setMyLocationFromInput);
+            document.getElementById('find-auto-location-btn').addEventListener('click', findAndSetMyLocation);
             selectionCanvas.addEventListener('mousedown', startSelection);
             selectionCanvas.addEventListener('mousemove', drawSelection);
             selectionCanvas.addEventListener('mouseup', endSelection);
@@ -263,6 +292,44 @@
             setTimeout(() => { msgBox.style.display = 'none'; }, 4000);
         }
 
+        // --- My Location Functions ---
+        function setMyLocation(lat, lng) {
+            if (myLocationMarker) {
+                map.removeLayer(myLocationMarker);
+            }
+            // Create a custom blue icon for "My Location"
+            const blueIcon = new L.Icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            });
+            myLocationMarker = L.marker([lat, lng], { icon: blueIcon }).addTo(map)
+                .bindPopup("<b>My Location</b>").openPopup();
+            map.panTo([lat, lng]);
+        }
+
+        function findAndSetMyLocation() {
+            if (!navigator.geolocation) return showMessage("Geolocation is not supported by this browser.");
+            navigator.geolocation.getCurrentPosition(position => {
+                const { latitude, longitude } = position.coords;
+                setMyLocation(latitude, longitude);
+                // Also populate the manual input for convenience
+                document.getElementById('coords-input').value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            }, () => showMessage("Could not get your location."));
+        }
+        
+        function setMyLocationFromInput() {
+            const coordsString = document.getElementById('auto-location-input').value;
+            if (!coordsString) return showMessage("Please enter coordinates for your location.");
+            const parts = coordsString.split(',').map(p => parseFloat(p.trim()));
+            if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return showMessage("Invalid format. Please use 'latitude, longitude'.");
+            setMyLocation(parts[0], parts[1]);
+        }
+
+
         // --- Manual Mode Functions ---
         function onMapClick(e) {
             const { lat, lng } = e.latlng;
@@ -280,17 +347,6 @@
             createAndAddPoint(parts[0], parts[1]);
             document.getElementById('coords-input').value = '';
         }
-        
-        function getMyLocation() {
-            if (!navigator.geolocation) return showMessage("Geolocation is not supported by this browser.");
-            navigator.geolocation.getCurrentPosition(position => {
-                const { latitude, longitude } = position.coords;
-                if (myLocationMarker) map.removeLayer(myLocationMarker);
-                myLocationMarker = L.marker([latitude, longitude]).addTo(map).bindPopup("<b>You are here!</b>").openPopup();
-                map.setView([latitude, longitude], 13);
-                document.getElementById('coords-input').value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-            }, () => showMessage("Could not get your location."));
-        }
 
         // --- Automation Mode Functions ---
         function updateOcrStatus(message, isLoading = false) {
@@ -301,6 +357,8 @@
         
         async function startWebcam() {
             isTestMode = false;
+            video.style.display = 'block';
+            testModeCanvas.style.display = 'none';
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 video.srcObject = stream;
@@ -316,10 +374,14 @@
 
         function startTestMode() {
             isTestMode = true;
+            video.style.display = 'none';
+            testModeCanvas.style.display = 'block';
             document.getElementById('video-wrapper').classList.remove('hidden');
             document.getElementById('tracking-controls').classList.remove('hidden');
             document.getElementById('automation-start-buttons').classList.add('hidden');
             
+            testModeCanvas.width = 320;
+            testModeCanvas.height = 180;
             selectionCanvas.width = 320;
             selectionCanvas.height = 180;
 
@@ -330,39 +392,54 @@
                 lat += (Math.random() - 0.5) * 0.001;
                 lng += (Math.random() - 0.5) * 0.001;
                 
-                ctx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
-                ctx.fillStyle = '#2d3748';
-                ctx.fillRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+                testCtx.clearRect(0, 0, testModeCanvas.width, testModeCanvas.height);
+                testCtx.fillStyle = '#2d3748';
+                testCtx.fillRect(0, 0, testModeCanvas.width, testModeCanvas.height);
                 
-                ctx.font = '20px monospace';
-                ctx.fillStyle = 'white';
-                ctx.fillText(lat.toFixed(8), 20, 50);
-                ctx.fillText(lng.toFixed(8), 20, 80);
+                testCtx.font = '20px monospace';
+                testCtx.fillStyle = 'white';
+                testCtx.fillText(lat.toFixed(8), 20, 50);
+                testCtx.fillText(lng.toFixed(8), 20, 80);
             }, 1000);
         }
+        
+        function getMousePos(evt) {
+            const rect = selectionCanvas.getBoundingClientRect();
+            const scaleX = selectionCanvas.width / rect.width;
+            const scaleY = selectionCanvas.height / rect.height;
 
-        function startSelection(e) { isSelecting = true; selectionRect = { startX: e.offsetX, startY: e.offsetY }; }
+            return {
+                x: (evt.clientX - rect.left) * scaleX,
+                y: (evt.clientY - rect.top) * scaleY
+            };
+        }
+
+        function startSelection(e) { 
+            const pos = getMousePos(e);
+            isSelecting = true; 
+            selectionRect = { startX: pos.x, startY: pos.y }; 
+        }
         
         function drawSelection(e) {
             if (!isSelecting) return;
-            const tempCtx = selectionCanvas.getContext('2d');
-            // Always clear the canvas to ensure only one selection rectangle is visible.
-            // In test mode, this will temporarily hide the coordinates during the drag, which is acceptable.
-            tempCtx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
-            tempCtx.strokeStyle = 'red';
-            tempCtx.lineWidth = 2;
-            tempCtx.strokeRect(selectionRect.startX, selectionRect.startY, e.offsetX - selectionRect.startX, e.offsetY - selectionRect.startY);
+            const pos = getMousePos(e);
+            selectionCtx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+            selectionCtx.strokeStyle = 'red';
+            selectionCtx.lineWidth = 2;
+            selectionCtx.strokeRect(selectionRect.startX, selectionRect.startY, pos.x - selectionRect.startX, pos.y - selectionRect.startY);
         }
 
         function endSelection(e) {
             if (!isSelecting) return;
+            const pos = getMousePos(e);
             isSelecting = false;
-            selectionRect.w = e.offsetX - selectionRect.startX;
-            selectionRect.h = e.offsetY - selectionRect.startY;
+            selectionRect.w = pos.x - selectionRect.startX;
+            selectionRect.h = pos.y - selectionRect.startY;
             const startTrackingBtn = document.getElementById('start-tracking-btn');
             if (Math.abs(selectionRect.w) < 10 || Math.abs(selectionRect.h) < 10) {
                  selectionRect = {};
                  startTrackingBtn.disabled = true;
+                 selectionCtx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
             } else {
                  startTrackingBtn.disabled = false;
                  showMessage("Region selected. Ready to start tracking.", false);
@@ -395,12 +472,16 @@
                 video.srcObject = null;
             }
 
+            video.style.display = 'block';
+            testModeCanvas.style.display = 'none';
+            selectionCtx.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+
             updateOcrStatus("Tracking stopped.");
         }
 
         async function performOcr() {
             if (!selectionRect.w || !selectionRect.h) return;
-            const sourceElement = isTestMode ? selectionCanvas : video;
+            const sourceElement = isTestMode ? testModeCanvas : video;
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = Math.abs(selectionRect.w);
             tempCanvas.height = Math.abs(selectionRect.h);
@@ -430,10 +511,21 @@
         // --- Shared Map/Path Functions ---
         function createAndAddPoint(lat, lng) {
             const position = [lat, lng];
-            const marker = L.marker(position).addTo(map).bindPopup(`Point ${markers.length + 1}: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            const pointNumber = markers.length + 1;
+
+            const numberIcon = L.divIcon({
+                className: 'number-marker',
+                html: `<span>${pointNumber}</span>`,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+            });
+
+            const marker = L.marker(position, { icon: numberIcon })
+                .addTo(map)
+                .bindPopup(`Point ${pointNumber}: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            
             markers.push(marker);
             pathCoordinates.push(position);
-            // More robustly add a point to the polyline instead of replacing the whole line
             polyline.addLatLng(position);
             updatePointList(lat, lng);
             map.panTo(position);
@@ -443,7 +535,7 @@
             const listUl = document.getElementById('point-list-ul');
             const listItem = document.createElement('li');
             listItem.className = 'text-gray-800';
-            listItem.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            listItem.textContent = `${markers.length}. ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
             listUl.prepend(listItem);
         }
 
